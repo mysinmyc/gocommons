@@ -28,7 +28,9 @@ type ConsumerFunc func(*Dispatcher, int, interface{}) error
 //	int = worker id
 //  interface{} = item
 // 	error = error occurred
-type ErrorHandlerFunc func(*Dispatcher, int, interface{}, error)
+//Returns:
+//  true in case the error has been recovered
+type ErrorHandlerFunc func(*Dispatcher, int, interface{}, error) bool
 
 //Dispatcher is an object that can be used to enqueue multithreading operations
 // it is studied for recursive operations, so it's safe for consumers to enqueue new data
@@ -40,6 +42,7 @@ type Dispatcher struct {
 	runningWorkers   sync.WaitGroup
 	status           int
 	batchSize        int
+	failed           bool
 }
 
 //NewDispatcher create a new dispatcher
@@ -85,13 +88,8 @@ func (vSelf *Dispatcher) worker(pCntWorker int) {
 			for _, vCurItem := range vItems {
 
 				vError := vSelf.consumerFunc(vSelf, pCntWorker, vCurItem)
-
 				if vError != nil {
-					if vSelf.errorHandlerFunc == nil {
-						log.Printf("<%d> ATTENTION: an error occurred processing item %v: %v ", pCntWorker, vCurItem, vError)
-					} else {
-						vSelf.errorHandlerFunc(vSelf, pCntWorker, vCurItem, vError)
-					}
+					vSelf.onItemError(vCurItem, vError, pCntWorker)
 				}
 			}
 		} else {
@@ -100,6 +98,20 @@ func (vSelf *Dispatcher) worker(pCntWorker int) {
 				return
 			}
 			time.Sleep(time.Microsecond * 100)
+		}
+	}
+}
+
+func (vSelf *Dispatcher) onItemError(pItem interface{}, pError error, pCntWorker int) {
+
+	if vSelf.errorHandlerFunc == nil {
+		log.Printf("<%d> ATTENTION: an error occurred processing item %v: %v ", pCntWorker, pItem, pError)
+	} else {
+
+		vRecovered := vSelf.errorHandlerFunc(vSelf, pCntWorker, pItem, pError)
+
+		if vRecovered == false {
+			vSelf.failed = true
 		}
 	}
 }
@@ -123,6 +135,7 @@ func (vSelf *Dispatcher) Start(pNumWorker int) error {
 	}
 
 	vSelf.status = STATUS_STARTED
+	vSelf.failed = false
 	for vCnt := 0; vCnt < pNumWorker; vCnt++ {
 		vSelf.runningWorkers.Add(1)
 		go vSelf.worker(vCnt)
@@ -140,4 +153,9 @@ func (vSelf *Dispatcher) WaitForCompletition() {
 	vSelf.status = STATUS_ENDING
 	vSelf.runningWorkers.Wait()
 	vSelf.status = STATUS_READY
+}
+
+//IsSucceded returns true if the operation is succeded. It must be requested only after WaitForCompletition method invocation
+func (vSelf *Dispatcher) IsSucceded() bool {
+	return vSelf.failed == false
 }
