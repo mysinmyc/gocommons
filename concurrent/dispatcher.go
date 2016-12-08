@@ -35,14 +35,15 @@ type ErrorHandlerFunc func(*Dispatcher, int, interface{}, error) bool
 //Dispatcher is an object that can be used to enqueue multithreading operations
 // it is studied for recursive operations, so it's safe for consumers to enqueue new data
 type Dispatcher struct {
-	pendingItems     []interface{}
-	consumerFunc     ConsumerFunc
-	errorHandlerFunc ErrorHandlerFunc
-	mux              sync.Mutex
-	runningWorkers   sync.WaitGroup
-	status           int
-	batchSize        int
-	failed           bool
+	pendingItems          []interface{}
+	consumerFunc          ConsumerFunc
+	errorHandlerFunc      ErrorHandlerFunc
+	itemsLock             *sync.Mutex
+	runningWorkers        sync.WaitGroup
+	runningWorkersCounter *Counter
+	status                int
+	batchSize             int
+	failed                bool
 }
 
 //NewDispatcher create a new dispatcher
@@ -50,13 +51,14 @@ type Dispatcher struct {
 // pConsumerFunc = consumer function
 // pBatchSize = number of items thata worker thread can dequeue per time
 func NewDispatcher(pConsumerFunc ConsumerFunc, pBatchSize int) *Dispatcher {
-	return &Dispatcher{pendingItems: make([]interface{}, 0, pBatchSize), consumerFunc: pConsumerFunc, batchSize: pBatchSize}
+	vMutex := &sync.Mutex{}
+	vRis := &Dispatcher{pendingItems: make([]interface{}, 0, pBatchSize), consumerFunc: pConsumerFunc, batchSize: pBatchSize, itemsLock: vMutex, runningWorkersCounter: NewCounter()}
+	return vRis
 }
 
 func (vSelf *Dispatcher) dequeue() []interface{} {
-
-	vSelf.mux.Lock()
-	defer vSelf.mux.Unlock()
+	vSelf.itemsLock.Lock()
+	defer vSelf.itemsLock.Unlock()
 	vRis := vSelf.pendingItems
 	vLen := len(vRis)
 
@@ -74,31 +76,43 @@ func (vSelf *Dispatcher) dequeue() []interface{} {
 //Parameters:
 // pItems = Items to enqueue
 func (vSelf *Dispatcher) Enqueue(pItems ...interface{}) {
-	vSelf.mux.Lock()
-	defer vSelf.mux.Unlock()
+	vSelf.itemsLock.Lock()
+	defer vSelf.itemsLock.Unlock()
 	vSelf.pendingItems = append(vSelf.pendingItems, pItems...)
+}
 
+func (vSelf *Dispatcher) IsWorking() bool {
+	vSelf.itemsLock.Lock()
+	defer vSelf.itemsLock.Unlock()
+	return len(vSelf.pendingItems) > 0 || vSelf.runningWorkersCounter.GetValue() > 0
 }
 
 func (vSelf *Dispatcher) worker(pCntWorker int) {
-	for {
-		vItems := vSelf.dequeue()
-		if len(vItems) > 0 {
 
+	for {
+
+		vItems := vSelf.dequeue()
+
+		if len(vItems) > 0 {
+			vSelf.runningWorkersCounter.IncreaseBy(1)
 			for _, vCurItem := range vItems {
 
 				vError := vSelf.consumerFunc(vSelf, pCntWorker, vCurItem)
 				if vError != nil {
 					vSelf.onItemError(vCurItem, vError, pCntWorker)
 				}
+
 			}
+			vSelf.runningWorkersCounter.IncreaseBy(-1)
 		} else {
-			if vSelf.status >= STATUS_ENDING {
+
+			if vSelf.IsWorking() == false && vSelf.status >= STATUS_ENDING {
 				vSelf.runningWorkers.Done()
 				return
 			}
-			time.Sleep(time.Microsecond * 100)
+			time.Sleep(time.Millisecond * 100)
 		}
+
 	}
 }
 
@@ -107,9 +121,7 @@ func (vSelf *Dispatcher) onItemError(pItem interface{}, pError error, pCntWorker
 	if vSelf.errorHandlerFunc == nil {
 		log.Printf("<%d> ATTENTION: an error occurred processing item %v: %v ", pCntWorker, pItem, pError)
 	} else {
-
 		vRecovered := vSelf.errorHandlerFunc(vSelf, pCntWorker, pItem, pError)
-
 		if vRecovered == false {
 			vSelf.failed = true
 		}
@@ -150,7 +162,13 @@ func (vSelf *Dispatcher) WaitForCompletition() {
 		return
 	}
 
-	vSelf.status = STATUS_ENDING
+	for {
+		if vSelf.IsWorking() == false {
+			vSelf.status = STATUS_ENDING
+			break
+		}
+		time.Sleep(time.Millisecond * 100)
+	}
 	vSelf.runningWorkers.Wait()
 	vSelf.status = STATUS_READY
 }

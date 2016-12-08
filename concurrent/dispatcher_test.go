@@ -8,7 +8,7 @@ import (
 
 func TestDispatcher(pTest *testing.T) {
 
-	vIterations := 1000
+	vIterations := 100
 	vPrintStats := 100
 	vTimeout := time.Second * 10
 	vDispatcher := NewDispatcher(func(vSelf *Dispatcher, pWorkerCnt int, pValue interface{}) error {
@@ -22,7 +22,7 @@ func TestDispatcher(pTest *testing.T) {
 			vSelf.Enqueue(vValue + 1)
 
 		}
-
+		time.Sleep(time.Millisecond * 10)
 		return nil
 
 	}, 10)
