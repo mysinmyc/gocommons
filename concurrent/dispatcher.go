@@ -93,6 +93,7 @@ func (vSelf *Dispatcher) worker(pCntWorker int) {
 
 		vItems := vSelf.dequeue()
 
+		//log.Printf("worker %d: %d\n", pCntWorker, len(vItems))
 		if len(vItems) > 0 {
 			vSelf.runningWorkersCounter.IncreaseBy(1)
 			for _, vCurItem := range vItems {
@@ -110,7 +111,7 @@ func (vSelf *Dispatcher) worker(pCntWorker int) {
 				vSelf.runningWorkers.Done()
 				return
 			}
-			time.Sleep(time.Millisecond * 100)
+			time.Sleep(time.Millisecond * 50)
 		}
 
 	}
