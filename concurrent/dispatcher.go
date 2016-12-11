@@ -1,10 +1,10 @@
 package concurrent
 
 import (
-	"fmt"
-	"log"
 	"sync"
 	"time"
+
+	"github.com/mysinmyc/gocommons/diagnostic"
 )
 
 const (
@@ -120,7 +120,7 @@ func (vSelf *Dispatcher) worker(pCntWorker int) {
 func (vSelf *Dispatcher) onItemError(pItem interface{}, pError error, pCntWorker int) {
 
 	if vSelf.errorHandlerFunc == nil {
-		log.Printf("<%d> ATTENTION: an error occurred processing item %v: %v ", pCntWorker, pItem, pError)
+		diagnostic.LogWarning("Dispatcher.onItemError", "worker %d failed to process item %v", pError, pCntWorker, pItem)
 	} else {
 		vRecovered := vSelf.errorHandlerFunc(vSelf, pCntWorker, pItem, pError)
 		if vRecovered == false {
@@ -144,7 +144,7 @@ func (vSelf *Dispatcher) SetErrorHandler(pErrorHandlerFunc ErrorHandlerFunc) {
 func (vSelf *Dispatcher) Start(pNumWorker int) error {
 
 	if vSelf.status != STATUS_READY {
-		return fmt.Errorf("Dispatcher in status %d", vSelf.status)
+		return diagnostic.NewError("Dispatcher in status %d", nil, vSelf.status)
 	}
 
 	vSelf.status = STATUS_STARTED
