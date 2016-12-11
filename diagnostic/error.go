@@ -44,7 +44,7 @@ func (vSelf *ImprovedError) String() string {
 	return vSelf.Message
 }
 
-//NewError create a ne error
+//NewError create an error
 //PARAMETERS:
 // pMessage = error message to be formatted
 // pCause = optional, the original Cause
