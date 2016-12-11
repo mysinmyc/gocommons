@@ -55,13 +55,12 @@ func IsLogTrace() bool {
 
 func log(pLogLevel LogLevel, pModule string, pMessage string, pError error, pParameters ...interface{}) {
 
-	vMessage := "[" + time.Now().String() + "]\t<" + _LogLevelNames[pLogLevel] + ">\t" + pModule + "\t"
-
-	if len(pParameters) == 0 {
-		vMessage += pMessage
-	} else {
-		vMessage += fmt.Sprintf(pMessage, pParameters)
+	if pLogLevel > _LogLevel {
+		return
 	}
+	vMessage := "[" + time.Now().Format("2006-01-02 15:04:05") + "]\t<" + _LogLevelNames[pLogLevel] + ">\t" + pModule + "\t"
+
+	vMessage += fmt.Sprintf(pMessage, pParameters...)
 	vMessage += "\n"
 
 	if pLogLevel > LogLevel_Debug {
@@ -94,7 +93,17 @@ func LogFatalIfError(pError error, pModule string, pMessage string, pParameters 
 	log(LogLevel_Fatal, pModule, pMessage, pError, pParameters...)
 }
 
-//LogError  log and message with severity error
+//LogError  log a message with severity fatal, then terminate the process
+//Parameters:
+// pModule = module description
+// pMessage = log message to be formatted
+// pError = optional, cause
+// pParameters = optional parameters to format message
+func LogFatal(pModule string, pMessage string, pError error, pParameters ...interface{}) {
+	log(LogLevel_Fatal, pModule, pMessage, pError, pParameters...)
+}
+
+//LogError  log a message with severity error
 //Parameters:
 // pModule = module description
 // pMessage = log message to be formatted
@@ -104,7 +113,7 @@ func LogError(pModule string, pMessage string, pError error, pParameters ...inte
 	log(LogLevel_Error, pModule, pMessage, pError, pParameters...)
 }
 
-//LogWarning log and message with severity warning
+//LogWarning log a message with severity warning
 //Parameters:
 // pModule = module description
 // pMessage = log message to be formatted
@@ -114,7 +123,7 @@ func LogWarning(pModule string, pMessage string, pError error, pParameters ...in
 	log(LogLevel_Warning, pModule, pMessage, pError, pParameters...)
 }
 
-//LogInfo log and message with severity info
+//LogInfo log a message with severity info
 //Parameters:
 // pModule = module description
 // pMessage = log message to be formatted
@@ -123,7 +132,7 @@ func LogInfo(pModule string, pMessage string, pParameters ...interface{}) {
 	log(LogLevel_Info, pModule, pMessage, nil, pParameters...)
 }
 
-//LogDebug log and message with severity debug
+//LogDebug log a message with severity debug
 //Parameters:
 // pModule = module description
 // pMessage = log message to be formatted
@@ -132,7 +141,7 @@ func LogDebug(pModule string, pMessage string, pParameters ...interface{}) {
 	log(LogLevel_Debug, pModule, pMessage, nil, pParameters...)
 }
 
-//LogTrace log and message with severity trace
+//LogTrace log a message with severity trace
 //Parameters:
 // pModule = module description
 // pMessage = log message to be formatted
