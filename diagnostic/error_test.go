@@ -1,11 +1,8 @@
 package diagnostic
 
-import (
-	"errors"
-	"fmt"
-	"testing"
-)
+import "testing"
 
+/*
 func TestError(pTest *testing.T) {
 
 	vOriginal := errors.New("Original error")
@@ -16,4 +13,27 @@ func TestError(pTest *testing.T) {
 	}
 
 	fmt.Printf("STRING: %s \nVALUE: %#v \n", vError, *vError)
+}
+*/
+
+type CustomError struct {
+	error
+}
+
+func TestGetMainError(pTest *testing.T) {
+
+	_, vIsRightType := GetMainError(&CustomError{}, false).(*CustomError)
+
+	if vIsRightType == false {
+		pTest.Fatal("something wrong in error type assertion")
+	}
+
+	vError := NewError("aaa", NewError("bbb", &CustomError{}))
+
+	_, vIsRightType = GetMainError(vError, false).(*CustomError)
+
+	if vIsRightType == false {
+		pTest.Fatal("something wrong in error type assertion of Improved errors")
+	}
+
 }
