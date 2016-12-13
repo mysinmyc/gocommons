@@ -13,14 +13,17 @@ const (
 	STATUS_ENDING  = iota
 )
 
+type WorkerLocals interface{}
+
 //ConsumerFunc signature of consumer functions
 //Parameters:
 //	*Dispatcher = dispatcher instance
 //	int = worker id
 //  interface{} = item
+//  workerLocals = worker local variables
 //Returns
 //	nil if succeded otherwise an error
-type ConsumerFunc func(*Dispatcher, int, interface{}) error
+type ConsumerFunc func(*Dispatcher, int, interface{}, WorkerLocals) error
 
 //ErrorHandlerFunc signature for item error handlers
 //Parameters:
@@ -28,22 +31,35 @@ type ConsumerFunc func(*Dispatcher, int, interface{}) error
 //	int = worker id
 //  interface{} = item
 // 	error = error occurred
+//  workerLocals = worker local variables
 //Returns:
 //  true in case the error has been recovered
-type ErrorHandlerFunc func(*Dispatcher, int, interface{}, error) bool
+type ErrorHandlerFunc func(*Dispatcher, int, interface{}, error, WorkerLocals) bool
+
+type WorkerLifeCycleEvent int
+
+const (
+	WorkerLifeCycleEvent_None    WorkerLifeCycleEvent = 0
+	WorkerLifeCycleEvent_Started WorkerLifeCycleEvent = iota
+	WorkerLifeCycleEvent_Stopped WorkerLifeCycleEvent = iota
+)
+
+type WorkerLifeCycleFunc func(*Dispatcher, int, WorkerLifeCycleEvent, WorkerLocals) (WorkerLocals, error)
 
 //Dispatcher is an object that can be used to enqueue multithreading operations
 // it is studied for recursive operations, so it's safe for consumers to enqueue new data
 type Dispatcher struct {
-	pendingItems          []interface{}
-	consumerFunc          ConsumerFunc
-	errorHandlerFunc      ErrorHandlerFunc
-	itemsLock             *sync.Mutex
-	runningWorkers        sync.WaitGroup
-	runningWorkersCounter *Counter
-	status                int
-	batchSize             int
-	failed                bool
+	pendingItems               []interface{}
+	consumerFunc               ConsumerFunc
+	ErrorHandlerFunc           ErrorHandlerFunc
+	itemsLock                  *sync.Mutex
+	runningWorkers             sync.WaitGroup
+	runningWorkersCounter      *Counter
+	status                     int
+	batchSize                  int
+	failed                     bool
+	workersLocals              []WorkerLocals
+	WorkerLifeCycleHandlerFunc WorkerLifeCycleFunc
 }
 
 //NewDispatcher create a new dispatcher
@@ -57,10 +73,17 @@ func NewDispatcher(pConsumerFunc ConsumerFunc, pBatchSize int) *Dispatcher {
 }
 
 func (vSelf *Dispatcher) dequeue() []interface{} {
-	vSelf.itemsLock.Lock()
-	defer vSelf.itemsLock.Unlock()
+
 	vRis := vSelf.pendingItems
 	vLen := len(vRis)
+	if vLen == 0 {
+		return []interface{}{}
+	}
+
+	vSelf.itemsLock.Lock()
+	defer vSelf.itemsLock.Unlock()
+	vRis = vSelf.pendingItems
+	vLen = len(vRis)
 
 	if vLen < vSelf.batchSize {
 		vSelf.pendingItems = make([]interface{}, 0, vSelf.batchSize)
@@ -89,18 +112,29 @@ func (vSelf *Dispatcher) IsWorking() bool {
 
 func (vSelf *Dispatcher) worker(pCntWorker int) {
 
+	if vSelf.WorkerLifeCycleHandlerFunc != nil {
+		diagnostic.LogInfo("Dispatcher.worker", "performing initialization of worker %d", pCntWorker)
+		vNewWorkerLocals, vInitError := vSelf.WorkerLifeCycleHandlerFunc(vSelf, pCntWorker, WorkerLifeCycleEvent_Started, nil)
+		vSelf.workersLocals[pCntWorker] = vNewWorkerLocals
+		if vInitError != nil {
+			vSelf.runningWorkers.Done()
+			diagnostic.LogError("Dispatcher.worker", "failed to init worker", vInitError)
+			return
+		}
+
+	}
+
 	for {
 
 		vItems := vSelf.dequeue()
 
-		//log.Printf("worker %d: %d\n", pCntWorker, len(vItems))
 		if len(vItems) > 0 {
 			vSelf.runningWorkersCounter.IncreaseBy(1)
 			for _, vCurItem := range vItems {
 
-				vError := vSelf.consumerFunc(vSelf, pCntWorker, vCurItem)
+				vError := vSelf.consumerFunc(vSelf, pCntWorker, vCurItem, vSelf.workersLocals[pCntWorker])
 				if vError != nil {
-					vSelf.onItemError(vCurItem, vError, pCntWorker)
+					vSelf.onItemError(vCurItem, vError, pCntWorker, vSelf.workersLocals[pCntWorker])
 				}
 
 			}
@@ -108,7 +142,15 @@ func (vSelf *Dispatcher) worker(pCntWorker int) {
 		} else {
 
 			if vSelf.IsWorking() == false && vSelf.status >= STATUS_ENDING {
+
+				_, vEndWorkerError := vSelf.WorkerLifeCycleHandlerFunc(vSelf, pCntWorker, WorkerLifeCycleEvent_Stopped, vSelf.workersLocals[pCntWorker])
+
 				vSelf.runningWorkers.Done()
+				if vEndWorkerError != nil {
+					diagnostic.LogError("Dispatcher.worker", "failed to stop worker", vEndWorkerError)
+					return
+				}
+
 				return
 			}
 			time.Sleep(time.Millisecond * 50)
@@ -117,12 +159,12 @@ func (vSelf *Dispatcher) worker(pCntWorker int) {
 	}
 }
 
-func (vSelf *Dispatcher) onItemError(pItem interface{}, pError error, pCntWorker int) {
+func (vSelf *Dispatcher) onItemError(pItem interface{}, pError error, pCntWorker int, pWorkerLocals WorkerLocals) {
 
-	if vSelf.errorHandlerFunc == nil {
+	if vSelf.ErrorHandlerFunc == nil {
 		diagnostic.LogWarning("Dispatcher.onItemError", "worker %d failed to process item %v", pError, pCntWorker, pItem)
 	} else {
-		vRecovered := vSelf.errorHandlerFunc(vSelf, pCntWorker, pItem, pError)
+		vRecovered := vSelf.ErrorHandlerFunc(vSelf, pCntWorker, pItem, pError, pWorkerLocals)
 		if vRecovered == false {
 			vSelf.failed = true
 		}
@@ -133,15 +175,15 @@ func (vSelf *Dispatcher) onItemError(pItem interface{}, pError error, pCntWorker
 //Parameters:
 // pErrorHandlerFunc = error handler function
 func (vSelf *Dispatcher) SetErrorHandler(pErrorHandlerFunc ErrorHandlerFunc) {
-	vSelf.errorHandlerFunc = pErrorHandlerFunc
+	vSelf.ErrorHandlerFunc = pErrorHandlerFunc
 }
 
 //Start dispatching threads
 //Parameters:
-// pNumWorker = number of worker threads
+// pNumWorkers = number of worker threads
 //Returns:
 // nil in case of success
-func (vSelf *Dispatcher) Start(pNumWorker int) error {
+func (vSelf *Dispatcher) Start(pNumWorkers int) error {
 
 	if vSelf.status != STATUS_READY {
 		return diagnostic.NewError("Dispatcher in status %d", nil, vSelf.status)
@@ -149,7 +191,9 @@ func (vSelf *Dispatcher) Start(pNumWorker int) error {
 
 	vSelf.status = STATUS_STARTED
 	vSelf.failed = false
-	for vCnt := 0; vCnt < pNumWorker; vCnt++ {
+
+	vSelf.workersLocals = make([]WorkerLocals, pNumWorkers)
+	for vCnt := 0; vCnt < pNumWorkers; vCnt++ {
 		vSelf.runningWorkers.Add(1)
 		go vSelf.worker(vCnt)
 	}

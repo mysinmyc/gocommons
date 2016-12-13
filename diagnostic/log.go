@@ -63,11 +63,11 @@ func log(pLogLevel LogLevel, pModule string, pMessage string, pError error, pPar
 	vMessage += fmt.Sprintf(pMessage, pParameters...)
 	vMessage += "\n"
 
-	if pLogLevel > LogLevel_Debug {
-		io.WriteString(os.Stderr, vMessage)
-	} else {
-		io.WriteString(os.Stdout, vMessage)
-	}
+	//if pLogLevel > LogLevel_Debug {
+	io.WriteString(os.Stderr, vMessage)
+	//} else {
+	//	io.WriteString(os.Stdout, vMessage)
+	//}
 
 	if pError != nil {
 		io.WriteString(os.Stderr, pError.Error())
