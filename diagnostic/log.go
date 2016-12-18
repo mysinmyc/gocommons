@@ -16,6 +16,7 @@ const (
 	LogLevel_Info    = iota
 	LogLevel_Debug   = iota
 	LogLevel_Trace   = iota
+	LogLevel_Support = iota
 
 	LogLevel_Default = LogLevel_Debug
 )
@@ -27,7 +28,8 @@ var (
 		LogLevel_Warning: "WARNING",
 		LogLevel_Info:    "INFO",
 		LogLevel_Debug:   "DEBUG",
-		LogLevel_Trace:   "TRACE"}
+		LogLevel_Trace:   "TRACE",
+		LogLevel_Support: "SUPPORT"}
 	_LogLevel LogLevel = LogLevel_Default
 )
 
@@ -53,6 +55,10 @@ func IsLogTrace() bool {
 	return _LogLevel >= LogLevel_Trace
 }
 
+//IsLogDebug return true if current loglevel accept trace
+func IsLogSupport() bool {
+	return _LogLevel >= LogLevel_Support
+}
 func log(pLogLevel LogLevel, pModule string, pMessage string, pError error, pParameters ...interface{}) {
 
 	if pLogLevel > _LogLevel {

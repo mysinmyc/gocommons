@@ -54,17 +54,25 @@ func (vSelf *ImprovedError) String() string {
 func NewError(pMessage string, pCause error, pFormat ...interface{}) *ImprovedError {
 
 	var vStack []byte
-
+	vRootError:=false
 	if pCause == nil {
 		vStack = debug.Stack()
+		vRootError=true
 	} else {
 		_, vIsCauseAnImprovedError := pCause.(*ImprovedError)
 
 		if vIsCauseAnImprovedError == false {
 			vStack = debug.Stack()
+			vRootError=true
 		}
 	}
-	return &ImprovedError{Message: fmt.Sprintf(pMessage, pFormat...), Cause: pCause, Stack: vStack}
+
+	vRis:= &ImprovedError{Message: fmt.Sprintf(pMessage, pFormat...), Cause: pCause, Stack: vStack}
+	if vRootError && IsLogSupport() {
+		log(LogLevel_Support,"NewError","Root error intercepted",vRis)
+	}
+	return vRis
+	
 }
 
 type NotAnError struct {
