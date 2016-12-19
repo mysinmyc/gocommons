@@ -143,7 +143,10 @@ func (vSelf *Dispatcher) worker(pCntWorker int) {
 
 			if vSelf.IsWorking() == false && vSelf.status >= STATUS_ENDING {
 
-				_, vEndWorkerError := vSelf.WorkerLifeCycleHandlerFunc(vSelf, pCntWorker, WorkerLifeCycleEvent_Stopped, vSelf.workersLocals[pCntWorker])
+				var vEndWorkerError error
+				if vSelf.WorkerLifeCycleHandlerFunc != nil {
+					_, vEndWorkerError = vSelf.WorkerLifeCycleHandlerFunc(vSelf, pCntWorker, WorkerLifeCycleEvent_Stopped, vSelf.workersLocals[pCntWorker])
+				}
 
 				vSelf.runningWorkers.Done()
 				if vEndWorkerError != nil {
