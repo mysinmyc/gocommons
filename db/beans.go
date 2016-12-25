@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/mysinmyc/gocommons/diagnostic"
+	"github.com/mysinmyc/gocommons/persistency"
 )
 
 const (
@@ -18,14 +19,6 @@ type IndentifiableInDb interface {
 	GetIdInDb() string
 }
 
-type BeanNotFoundError struct {
-	error
-	beanID string
-}
-
-func (vSelf *BeanNotFoundError) Error() string {
-	return fmt.Sprintf("Bean with id %s not found", vSelf.beanID)
-}
 
 func (vSelf *DbHelper) initBeans() error {
 	if vSelf.beansInitialized {
@@ -58,7 +51,7 @@ func (vSelf *DbHelper) LoadBean(pBean IndentifiableInDb) error {
 	defer vRows.Close()
 
 	if vRows.Next() == false {
-		return &BeanNotFoundError{beanID: pBean.GetIdInDb()}
+		return &persistency.BeanNotFoundError{BeanID: pBean.GetIdInDb()}
 	}
 
 	var vData []byte
