@@ -16,7 +16,7 @@ const (
 )
 
 type DbHelper struct {
-	Db *sql.DB
+	db *sql.DB
 	dbType  DbType
 	beansInitialized bool
 }
@@ -33,7 +33,7 @@ func NewDbHelper(pDriver string, pDataSourceName string) (*DbHelper, error) {
 }
 
 func NewDbHelperFor(pDb *sql.DB) *DbHelper {
-	return &DbHelper{Db: pDb}
+	return &DbHelper{db: pDb}
 }
 
 func GetDbType(pDb *sql.DB) DbType {
@@ -51,21 +51,21 @@ func GetDbType(pDb *sql.DB) DbType {
 
 func (vSelf *DbHelper) GetDbType() DbType {
 	if vSelf.dbType == "" {
-		vSelf.dbType = GetDbType(vSelf.Db)	
+		vSelf.dbType = GetDbType(vSelf.db)	
 	}
 
 	return vSelf.dbType
 }
 
 func (vSelf *DbHelper) GetDb() *sql.DB {
-	return vSelf.Db
+	return vSelf.db
 }
 
 
 func (vSelf *DbHelper) Exec(pQuery string, pParameters ...interface{}) (sql.Result,error) {
-	return vSelf.Db.Exec(pQuery,pParameters...)
+	return vSelf.db.Exec(pQuery,pParameters...)
 }
 
 func (vSelf *DbHelper) Close() error {
-	return vSelf.Db.Close()
+	return vSelf.db.Close()
 }

@@ -38,10 +38,11 @@ var (
 // pLogLevel = log level to set
 func SetLogLevel(pLogLevel LogLevel) error {
 
-	if _LogLevelNames[pLogLevel] == "" {
-		NewError("Invalid loglevel %d", nil, pLogLevel)
-	}
 	_LogLevel = pLogLevel
+	LogInfo("SetLogLevel", "logLevel changed to %v [%v]", pLogLevel, _LogLevelNames[pLogLevel])
+	if _LogLevelNames[pLogLevel] == "" {
+		return NewError("Invalid loglevel %d", nil, pLogLevel)
+	}
 	return nil
 }
 
