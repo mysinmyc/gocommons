@@ -62,6 +62,10 @@ func (vSelf *DbHelper) GetDb() *sql.DB {
 }
 
 
+func (vSelf *DbHelper) SetMaxOpenConns(pNum int) {
+	vSelf.db.SetMaxOpenConns(pNum)
+}
+
 func (vSelf *DbHelper) Exec(pQuery string, pParameters ...interface{}) (sql.Result,error) {
 	return vSelf.db.Exec(pQuery,pParameters...)
 }
