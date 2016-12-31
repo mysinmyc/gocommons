@@ -51,7 +51,7 @@ func IsLogDebug() bool {
 	return _LogLevel >= LogLevel_Debug
 }
 
-//IsLogDebug return true if current loglevel accept trace
+//IsLogTrace return true if current loglevel accept trace
 func IsLogTrace() bool {
 	return _LogLevel >= LogLevel_Trace
 }
