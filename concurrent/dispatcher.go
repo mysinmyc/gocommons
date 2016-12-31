@@ -7,10 +7,12 @@ import (
 	"github.com/mysinmyc/gocommons/diagnostic"
 )
 
+
+type DispatcherStatus int
 const (
-	STATUS_READY   = 0
-	STATUS_STARTED = iota
-	STATUS_ENDING  = iota
+	DispatcherStatus_Ready  DispatcherStatus = 0
+	DispatcherStatus_Started DispatcherStatus = iota
+	DispatcherStatus_Ending DispatcherStatus = iota
 )
 
 type WorkerLocals interface{}
@@ -55,7 +57,7 @@ type Dispatcher struct {
 	itemsLock                  *sync.Mutex
 	runningWorkers             sync.WaitGroup
 	runningWorkersCounter      *Counter
-	status                     int
+	status                     DispatcherStatus
 	batchSize                  int
 	failed                     bool
 	workersLocals              []WorkerLocals
@@ -141,7 +143,7 @@ func (vSelf *Dispatcher) worker(pCntWorker int) {
 			vSelf.runningWorkersCounter.IncreaseBy(-1)
 		} else {
 
-			if vSelf.IsWorking() == false && vSelf.status >= STATUS_ENDING {
+			if vSelf.IsWorking() == false && vSelf.status >= DispatcherStatus_Ending {
 
 				var vEndWorkerError error
 				if vSelf.WorkerLifeCycleHandlerFunc != nil {
@@ -188,11 +190,11 @@ func (vSelf *Dispatcher) SetErrorHandler(pErrorHandlerFunc ErrorHandlerFunc) {
 // nil in case of success
 func (vSelf *Dispatcher) Start(pNumWorkers int) error {
 
-	if vSelf.status != STATUS_READY {
+	if vSelf.status != DispatcherStatus_Ready {
 		return diagnostic.NewError("Dispatcher in status %d", nil, vSelf.status)
 	}
 
-	vSelf.status = STATUS_STARTED
+	vSelf.status = DispatcherStatus_Started
 	vSelf.failed = false
 
 	vSelf.workersLocals = make([]WorkerLocals, pNumWorkers)
@@ -204,21 +206,26 @@ func (vSelf *Dispatcher) Start(pNumWorkers int) error {
 	return nil
 }
 
+//GetStatus Return the status of the dispatcher
+func (vSelf *Dispatcher) GetStatus() DispatcherStatus {
+	return vSelf.status
+}
+
 //WaitForCompletition wait for activity completition and notifies workers to stop
 func (vSelf *Dispatcher) WaitForCompletition() {
-	if vSelf.status < STATUS_STARTED {
+	if vSelf.status < DispatcherStatus_Started {
 		return
 	}
 
 	for {
 		if vSelf.IsWorking() == false {
-			vSelf.status = STATUS_ENDING
+			vSelf.status = DispatcherStatus_Ending
 			break
 		}
 		time.Sleep(time.Millisecond * 100)
 	}
 	vSelf.runningWorkers.Wait()
-	vSelf.status = STATUS_READY
+	vSelf.status = DispatcherStatus_Ready
 }
 
 //IsSucceded returns true if the operation is succeded. It must be requested only after WaitForCompletition method invocation
