@@ -20,10 +20,6 @@ type InsertOptions struct {
 	NumberOfAdditionalRows int
 }
 
-const (
-	BulkInsert_BatchSize int=500
-)
-
 func BuildInsertStatementString(pDbType DbType, pTable string, pFields []string, pOptions InsertOptions) (string, error) {
 
 	vRowValues := " ("
@@ -91,7 +87,8 @@ func (vSelf *SqlInsert) Exec(pParameters ...interface{}) (sql.Result, error) {
 	return vSelf.statement.Exec(pParameters...)
 }
 
-func (vSelf *SqlInsert) BeginBulk() (bool,error) {
+
+func (vSelf *SqlInsert) BeginBulk(pBulkOptions BulkOptions) (bool,error) {
 
 	if vSelf.bulkManager != nil {
 		return false,nil
@@ -99,7 +96,7 @@ func (vSelf *SqlInsert) BeginBulk() (bool,error) {
 
 	diagnostic.LogDebug("SqlInsert.BeginBulk", "Starting bulk insert on %s table", vSelf.table)
 
-	vBulkManager,vBulkManagerError:= NewBulkManagerMultiRows(vSelf,BulkInsert_BatchSize)
+	vBulkManager,vBulkManagerError:= BuildBulkManager(vSelf,pBulkOptions)
 	if vBulkManagerError != nil {
 		return false,diagnostic.NewError("Error creating bulk manager",vBulkManagerError)
 	}

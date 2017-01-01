@@ -28,8 +28,7 @@ func TestSqlite3InsertBulk(pTest *testing.T) {
 		pTest.Error("failed to create table",vCreateTableError)
 	}
 
-	testInsert(vDbHelper,"test","fielda",10000,true,true,pTest)
-	testInsert(vDbHelper,"test","fielda",10000,true,true,pTest)
+	testInsert(vDbHelper,"test","fielda",100000,true,true,pTest)
 
 	
 }
@@ -50,7 +49,7 @@ func TestMysqlInsertBulk(pTest *testing.T) {
 		pTest.Error("failed to create table",vCreateTableError)
 	}
 
-	testInsert(vDbHelper,vTableName,"fielda",20000,true,true,pTest)
+	testInsert(vDbHelper,vTableName,"fielda",100000,true,true,pTest)
 
 	defer vDbHelper.Exec("drop table "+vTableName)	
 }
@@ -63,7 +62,7 @@ func testInsert(pDbHelper *DbHelper, pTargetTable string, pColumnName string, pR
 	}
 
 	if pBulk {	
-		_,vBeginBulkError:=vInsert.BeginBulk()
+		_,vBeginBulkError:=vInsert.BeginBulk(BulkOptions{})
 		if vBeginBulkError != nil {
 			pTest.Error("An error occurred while begin bulk",vBeginBulkError)
 		}	

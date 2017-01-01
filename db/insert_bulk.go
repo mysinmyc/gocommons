@@ -13,6 +13,35 @@ type BulkManager interface {
 }
 
 
+const (
+	BulkInsert_DefaultBatchSize = 100
+)
+
+type BulkOptions struct {
+	BatchSize int
+	BulkManager BulkManager
+}
+
+func BuildBulkManager(pParent *SqlInsert, pBulkOptions BulkOptions) (BulkManager, error) {
+
+	if pBulkOptions.BulkManager != nil {
+		return pBulkOptions.BulkManager,nil
+	}
+	
+	vBatchSize := pBulkOptions.BatchSize
+	if vBatchSize < 1 {
+		vBatchSize = BulkInsert_DefaultBatchSize
+	}
+
+	switch pParent.dbHelper.GetDbType() {
+
+		case DbType_sqlite3:
+			return NewBulkManagerInMemory(pParent, vBatchSize)	
+		default:
+			return NewBulkManagerMultiRows(pParent, vBatchSize)	
+	}
+}
+
 type BulkManagerMultiRows struct {
 	parent *SqlInsert
 	insertStatement   *sql.Stmt
@@ -22,7 +51,18 @@ type BulkManagerMultiRows struct {
 }
 
 func NewBulkManagerMultiRows(pParent *SqlInsert, pBatchSize int) (BulkManager, error) {
-	return &BulkManagerMultiRows{parent:pParent,batchSize:pBatchSize},nil
+
+	vBatchSize:= pBatchSize
+	if pParent.dbHelper.GetDbType() == DbType_sqlite3 {
+		if (pBatchSize*len(pParent.fields) > 999) {
+			vBatchSize = 999 / len(pParent.fields)
+			diagnostic.LogWarning("NewBulkManagerMultiRows","Batch size reduced to %d",nil,vBatchSize)
+		}
+	}
+ 
+	vRis:= &BulkManagerMultiRows{parent:pParent,batchSize:vBatchSize}
+	return vRis,nil
+	
 }
 
 func (vSelf *BulkManagerMultiRows) Begin() error {
@@ -47,6 +87,7 @@ func (vSelf *BulkManagerMultiRows) Enqueue(pParameters ...interface{}) error {
 	vSelf.pendingRowsCount++
 
 	if vSelf.pendingRowsCount == vSelf.batchSize {
+                diagnostic.LogDebug("BulkManagerMultiRows.Enqueue", "BulkInsert batch size of %d reached, forcing commit", vSelf.batchSize)
 		return vSelf.Commit()
 	}
 	return nil
@@ -88,3 +129,4 @@ func (vSelf *BulkManagerMultiRows) End() error {
 	}
 	return nil
 }
+
