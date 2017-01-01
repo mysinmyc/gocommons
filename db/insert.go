@@ -12,28 +12,29 @@ type SqlInsert struct {
 	fields    []string
 	statement *sql.Stmt
 	options   InsertOptions
-	bulk	  *SqlInsertBulk
-}
-
-type SqlInsertBulk struct {
-	insertStatement   *sql.Stmt
-	pendingItems      int64
+	bulkManager  BulkManager
 }
 
 type InsertOptions struct {
 	Replace bool
+	NumberOfAdditionalRows int
 }
 
 const (
-	BulkInsert_BatchSize int64=500
+	BulkInsert_BatchSize int=500
 )
 
 func BuildInsertStatementString(pDbType DbType, pTable string, pFields []string, pOptions InsertOptions) (string, error) {
 
-	vParameters := make([]string, len(pFields))
+	vRowValues := " ("
 	for vCnt := 0; vCnt < len(pFields); vCnt++ {
-		vParameters[vCnt] = "?"
+		if vCnt > 0 {
+			vRowValues+=",?"
+		}	else {
+			vRowValues+= "?"
+		}
 	}
+	vRowValues+=")"
 
 	var vRis string
 	if pOptions.Replace {
@@ -49,7 +50,14 @@ func BuildInsertStatementString(pDbType DbType, pTable string, pFields []string,
 		vRis = "insert into"
 	}
 
-	vRis += " " + pTable + "(" + strings.Join(pFields, ",") + ") values(" + strings.Join(vParameters, ",")+")"
+	vRis += " " + pTable + "(" + strings.Join(pFields, ",") + ") values "
+	
+	for vCnt:=-1; vCnt < pOptions.NumberOfAdditionalRows; vCnt++ {
+		if vCnt > -1 {
+			vRis+=" ,"
+		}
+		vRis+=vRowValues
+	}
 
 	return vRis,nil
 }
@@ -72,153 +80,69 @@ func (vSelf *DbHelper) CreateInsert(pTable string, pFields []string, pOptions In
 
 func (vSelf *SqlInsert) Exec(pParameters ...interface{}) (sql.Result, error) {
 
-	if vSelf.bulk !=nil{
-		vSqlResult,vError:= vSelf.bulk.insertStatement.Exec(pParameters...)
-		if vError !=nil {
-			return vSqlResult, diagnostic.NewError("Error during insert bulk", vError)
+	if vSelf.bulkManager !=nil{
+		vEnqueueError:=vSelf.bulkManager.Enqueue(pParameters...)
+		if vEnqueueError !=nil {
+			return nil, diagnostic.NewError("Error during bulk enqueue", vEnqueueError)
 		}
 
-		vSelf.bulk.pendingItems++
-		if vSelf.bulk.pendingItems > BulkInsert_BatchSize {
-			diagnostic.LogDebug("SqlInsert.Exec", "BulkInsert batch size of %d reached, forcing commit", BulkInsert_BatchSize)
-			vCommitError:=vSelf.Commit()	
-			if vCommitError != nil {
-				return nil, diagnostic.NewError("Error during bulk checkpoint", vCommitError)
-			}
-		}
-		return vSqlResult,nil
+		return nil,nil
 	}	
 	return vSelf.statement.Exec(pParameters...)
 }
 
-
 func (vSelf *SqlInsert) BeginBulk() (bool,error) {
 
-	if vSelf.bulk != nil {
+	if vSelf.bulkManager != nil {
 		return false,nil
 	}
 
-	var vInsertStatement *sql.Stmt
-	
-	vDbType := vSelf.dbHelper.GetDbType()	
-	switch vDbType {
-		case DbType_sqlite3:
+	diagnostic.LogDebug("SqlInsert.BeginBulk", "Starting bulk insert on %s table", vSelf.table)
 
-			vSelf.dbHelper.SetMaxOpenConns(1)
-
-			vSelf.dbHelper.Exec("ATTACH DATABASE ':memory:' AS __memorydb")
-		
-			_,vCreateTableError:=vSelf.dbHelper.GetDb().Exec("CREATE TABLE IF NOT EXISTS __memorydb."+vSelf.table+"_bulk as select * from "+vSelf.table+" where 2=1")
-			if vCreateTableError != nil {
-				return false,diagnostic.NewError("An error occurred while creating temp table", vCreateTableError)
-			}
-
-			vStatementString, vStatementStringError := BuildInsertStatementString(vDbType, "__memorydb."+vSelf.table+"_bulk", vSelf.fields,InsertOptions{} )
-			if vStatementStringError != nil {
-				return false, diagnostic.NewError("failed to build insert statement", vStatementStringError)
-			}
-
-			var vInsertStatementError error
-			vInsertStatement, vInsertStatementError = vSelf.dbHelper.GetDb().Prepare(vStatementString)
-			if vInsertStatementError != nil {
-				return false, diagnostic.NewError("failed to prepare insert statement %s", vInsertStatementError, vStatementString)
-			}
-		case DbType_mysql:
-			_,vCreateTableError:=vSelf.dbHelper.GetDb().Exec("CREATE TABLE IF NOT EXISTS "+vSelf.table+"_bulk ENGINE=MEMORY as select * from "+vSelf.table+" where 2=1")
-			if vCreateTableError != nil {
-				return false,diagnostic.NewError("An error occurred while creating temp table", vCreateTableError)
-			}
-
-			vStatementString, vStatementStringError := BuildInsertStatementString(vDbType, vSelf.table+"_bulk", vSelf.fields,InsertOptions{} )
-			if vStatementStringError != nil {
-				return false, diagnostic.NewError("failed to build insert statement", vStatementStringError)
-			}
-
-			var vInsertStatementError error
-			vInsertStatement, vInsertStatementError = vSelf.dbHelper.GetDb().Prepare(vStatementString)
-			if vInsertStatementError != nil {
-				return false, diagnostic.NewError("failed to prepare insert statement %s", vInsertStatementError, vStatementString)
-			}
-		default:
-			return false,diagnostic.NewError("Bulk not supported for dbType %s", nil, vDbType)
+	vBulkManager,vBulkManagerError:= NewBulkManagerMultiRows(vSelf,BulkInsert_BatchSize)
+	if vBulkManagerError != nil {
+		return false,diagnostic.NewError("Error creating bulk manager",vBulkManagerError)
 	}
 
-	vSelf.bulk= &SqlInsertBulk {insertStatement: vInsertStatement}
+	vBeginError:=vBulkManager.Begin()
+	if vBeginError != nil {
+		return false,diagnostic.NewError("Error starting bulk manager",vBeginError)
+	}
+	vSelf.bulkManager=vBulkManager
 	return true,nil
 }
 
 func (vSelf *SqlInsert) Commit() (error) {
-	if vSelf.bulk == nil {
+	if vSelf.bulkManager == nil {
 		return nil
 	}
 
-	vDbType := vSelf.dbHelper.GetDbType()	
-	switch vDbType {
-		case DbType_sqlite3:
-			var vInsertModifiers string
-			if vSelf.options.Replace {
-				vInsertModifiers = " or replace "
-			}
-
-			_,vCommitError:=vSelf.dbHelper.GetDb().Exec("insert "+vInsertModifiers+" into "+vSelf.table+" select * from   __memorydb."+vSelf.table+"_bulk")
-			if vCommitError != nil {
-				return diagnostic.NewError("An error occurred while commit bulk", vCommitError)
-			}
-
-			_,vDeleteError:=vSelf.dbHelper.GetDb().Exec("delete from  __memorydb."+vSelf.table+"_bulk")
-			if vDeleteError != nil {
-				return diagnostic.NewError("An error occurred while cleaning temp table during commit", vDeleteError)
-			}
-		case DbType_mysql:
-			var vInsertPrefix string
-			if vSelf.options.Replace {
-				vInsertPrefix = "replace "
-			} else {
-				vInsertPrefix = "insert into "
-			}
-
-			_,vCommitError:=vSelf.dbHelper.GetDb().Exec(vInsertPrefix+" into "+vSelf.table+" select * from  "+vSelf.table+"_bulk")
-			if vCommitError != nil {
-				return diagnostic.NewError("An error occurred while commit bulk", vCommitError)
-			}
-
-			_,vDeleteError:=vSelf.dbHelper.GetDb().Exec("delete from "+vSelf.table+"_bulk")
-			if vDeleteError != nil {
-				return diagnostic.NewError("An error occurred while cleaning temp table during commit", vDeleteError)
-			}
-
+	diagnostic.LogDebug("SqlInsert.Commit", "Commit data in real table %s", vSelf.table)
+	vCommitError:= vSelf.bulkManager.Commit()
+	if vCommitError != nil {
+		return diagnostic.NewError("Commit failed",vCommitError)
 	}
-	vSelf.bulk.pendingItems=0
 	return nil
 }
 
 func (vSelf *SqlInsert) EndBulk() (error) {
 		
-	if vSelf.bulk == nil {
+	if vSelf.bulkManager == nil {
 		return nil
 	}
 
-	vCommitError:=vSelf.Commit()
-	
-	vSelf.bulk =nil	
-	
-	vDbType := vSelf.dbHelper.GetDbType()	
-	switch vDbType {
-		case DbType_sqlite3:
-			vSelf.dbHelper.SetMaxOpenConns(-1)
-			
-			_,vDropTableError:=vSelf.dbHelper.GetDb().Exec("drop table __memorydb."+vSelf.table+"_bulk")
-			if vDropTableError != nil {
-				//return diagnostic.NewError("An error occurred while dropping temp table", vDropTableError)
-				diagnostic.LogWarning("SqlInsert.EndBulk","An error occurred while dropping temp table", vDropTableError)
-			}
+	diagnostic.LogDebug("SqlInsert.EndBulk", "Ending bulk operation...")
+	vEndBulkError:= vSelf.bulkManager.End()
+	if vEndBulkError != nil {
+		return diagnostic.NewError("EndBulk failed",vEndBulkError)
 	}
-	return vCommitError
+	vSelf.bulkManager=nil
+	return nil
 }
 
 func (vSelf *SqlInsert) Close() error {
 
-	if vSelf.bulk != nil  {
+	if vSelf.bulkManager != nil  {
 		vEndBulkError := vSelf.EndBulk()
 		if vEndBulkError != nil {
 			return diagnostic.NewError("Error closing insert bulk", vEndBulkError)

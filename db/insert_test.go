@@ -4,10 +4,14 @@ import (
 	"os"
 	"testing"
 	"strconv"
+	"strings"
 	_ "github.com/mattn/go-sqlite3"
 	_ "github.com/go-sql-driver/mysql"
 )
 
+var (
+	dummyData = strings.Repeat("X",500)
+)
 func TestSqlite3InsertBulk(pTest *testing.T) {
 
 	vTempDb:=os.TempDir()+"/__test"+strconv.Itoa(os.Getpid())+".db"
@@ -25,6 +29,7 @@ func TestSqlite3InsertBulk(pTest *testing.T) {
 	}
 
 	testInsert(vDbHelper,"test","fielda",10000,true,true,pTest)
+	testInsert(vDbHelper,"test","fielda",10000,true,true,pTest)
 
 	
 }
@@ -40,12 +45,12 @@ func TestMysqlInsertBulk(pTest *testing.T) {
 	defer vDbHelper.Close()
 
 	vTableName:="__test"+strconv.Itoa(os.Getpid())	
-	_,vCreateTableError := vDbHelper.Exec("create table "+vTableName+" (fielda varchar(250) primary key)")
+	_,vCreateTableError := vDbHelper.Exec("create table "+vTableName+" (fielda varchar(700) primary key)")
 	if vCreateTableError != nil {
 		pTest.Error("failed to create table",vCreateTableError)
 	}
 
-	testInsert(vDbHelper,vTableName,"fielda",10000,true,true,pTest)
+	testInsert(vDbHelper,vTableName,"fielda",20000,true,true,pTest)
 
 	defer vDbHelper.Exec("drop table "+vTableName)	
 }
@@ -65,7 +70,7 @@ func testInsert(pDbHelper *DbHelper, pTargetTable string, pColumnName string, pR
 	}
 
 	for vCnt:=0;vCnt<pRowsToInsert;vCnt++ {
-		_,vExecError:=vInsert.Exec("Item "+strconv.Itoa(vCnt))
+		_,vExecError:=vInsert.Exec("Item "+strconv.Itoa(vCnt)+dummyData)
 		if vExecError!=nil {
 			pTest.Error(vExecError)
 		}
@@ -90,5 +95,5 @@ func testInsert(pDbHelper *DbHelper, pTargetTable string, pColumnName string, pR
 		pTest.Errorf("invalid number of rows in table: current %d expected %d",vRowsInTable,pRowsToInsert)
 	}
 
-	pDbHelper.Close()
+	//pDbHelper.Close()
 }
