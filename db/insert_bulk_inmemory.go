@@ -19,6 +19,9 @@ func NewBulkManagerInMemory(pParent *SqlInsert, pBatchSize int) (BulkManager, er
 }
 
 func (vSelf *BulkManagerInMemory) Begin() error {
+
+	vSelf.parent.Lock()
+	defer vSelf.parent.Unlock()
 	var vInsertStatement *sql.Stmt
 	vDbType := vSelf.parent.dbHelper.GetDbType()	
 	switch vDbType {
@@ -69,12 +72,14 @@ func (vSelf *BulkManagerInMemory) Begin() error {
 
 func (vSelf *BulkManagerInMemory) Enqueue(pParameters ...interface{}) error {
 
+	vSelf.parent.Lock()
 	_,vError:= vSelf.insertStatement.Exec(pParameters...)
+	vSelf.pendingRowsCount++
+	vSelf.parent.Unlock()
 	if vError !=nil {
 		return diagnostic.NewError("Error during insert bulk", vError)
 	}
 
-	vSelf.pendingRowsCount++
 	if vSelf.pendingRowsCount == vSelf.batchSize {
 		diagnostic.LogDebug("BulkManagerInMemory.Enqueue", "BulkInsert batch size of %d reached, forcing commit", vSelf.batchSize)
 		vCommitError:=vSelf.Commit()	
@@ -87,10 +92,12 @@ func (vSelf *BulkManagerInMemory) Enqueue(pParameters ...interface{}) error {
 
 func (vSelf *BulkManagerInMemory) Commit() error {
 
+	vSelf.parent.Lock()
+	defer vSelf.parent.Unlock()
+
 	if vSelf.pendingRowsCount==0 {
 		return nil
 	}
-
 
 	vDbType := vSelf.parent.dbHelper.GetDbType()	
 	switch vDbType {

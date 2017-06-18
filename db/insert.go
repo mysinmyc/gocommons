@@ -1,6 +1,7 @@
 package db
 
 import (
+	"sync"
 	"database/sql"
 	"github.com/mysinmyc/gocommons/diagnostic"
 	"strings"
@@ -13,6 +14,7 @@ type SqlInsert struct {
 	statement *sql.Stmt
 	options   InsertOptions
 	bulkManager  BulkManager
+	mutex *sync.Mutex
 }
 
 type InsertOptions struct {
@@ -70,7 +72,7 @@ func (vSelf *DbHelper) CreateInsert(pTable string, pFields []string, pOptions In
 		return nil, diagnostic.NewError("failed to prepare insert statement %s", vStatementError, vStatementString)
 	}
 
-	return &SqlInsert{dbHelper: vSelf, table: pTable, options: pOptions, statement: vStatement, fields: pFields},nil
+	return &SqlInsert{dbHelper: vSelf, table: pTable, options: pOptions, statement: vStatement, fields: pFields, mutex: &sync.Mutex{}},nil
 }
 
 
@@ -114,7 +116,9 @@ func (vSelf *SqlInsert) Commit() (error) {
 		return nil
 	}
 
-	diagnostic.LogDebug("SqlInsert.Commit", "Commit data in real table %s", vSelf.table)
+	if diagnostic.IsLogTrace() {
+		diagnostic.LogDebug("SqlInsert.Commit", "Commit data in real table %s", vSelf.table)
+	}
 	vCommitError:= vSelf.bulkManager.Commit()
 	if vCommitError != nil {
 		return diagnostic.NewError("Commit failed",vCommitError)
@@ -153,4 +157,12 @@ func (vSelf *SqlInsert) Close() error {
 
 	return nil
 
+}
+
+func (vSelf *SqlInsert) Lock() {
+	vSelf.mutex.Lock()
+}
+
+func (vSelf *SqlInsert) Unlock() {
+	vSelf.mutex.Unlock()
 }
