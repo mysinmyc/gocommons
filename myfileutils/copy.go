@@ -3,7 +3,6 @@ package myfileutils
 import (
 	"io"
 	"os"
-	"log"
 	"github.com/mysinmyc/gocommons/diagnostic"
 )
 
@@ -23,7 +22,7 @@ func CopyFile(pSource,pDestination string) error {
 	
 	defer vOutputFile.Close()
 
-	_,vError:=io.Copy(vOutputFile,vInputFile)
+	_,vError=io.Copy(vOutputFile,vInputFile)
 	if vError != nil {
 		return diagnostic.NewError("Failed to copy %s into %s",vError,pSource,pDestination)
 	}
